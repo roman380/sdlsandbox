@@ -40,3 +40,35 @@ target_link_libraries(cube GL)
 target_include_directories(cube PRIVATE ${GST_INCLUDE_DIRS} ${GST_BASE_INCLUDE_DIRS} "/usr/lib/arm-linux-gnueabihf/gstreamer-1.0/include")
 target_link_directories(cube PRIVATE ${GST_LIBRARY_DIRS} ${GST_BASE_LIBRARY_DIRS})
 target_link_libraries(cube glib-2.0 gobject-2.0 gstreamer-1.0 gstbase-1.0 gstvideo-1.0 gstgl-1.0)
+
+# \gst-build\gst-plugins-base\tests\examples\gl\sdl sdlshare.c
+
+add_executable(sdlshare1 sdlshare.c)
+
+target_link_libraries(sdlshare1 Threads::Threads)
+
+target_compile_options(sdlshare1 PRIVATE ${SDL2_CFLAGS_OTHER})
+target_include_directories(sdlshare1 PRIVATE ${SDL2_INCLUDE_DIRS})
+target_link_libraries(sdlshare1 ${SDL2_LIBRARIES})
+
+target_link_libraries(sdlshare1 GL)
+
+target_include_directories(sdlshare1 PRIVATE ${GST_INCLUDE_DIRS} ${GST_BASE_INCLUDE_DIRS} "/usr/lib/arm-linux-gnueabihf/gstreamer-1.0/include")
+target_link_directories(sdlshare1 PRIVATE ${GST_LIBRARY_DIRS} ${GST_BASE_LIBRARY_DIRS})
+target_link_libraries(sdlshare1 glib-2.0 gobject-2.0 gstreamer-1.0 gstbase-1.0 gstvideo-1.0 gstgl-1.0)
+
+# \gst-build\gst-plugins-base\tests\examples\gl\sdl sdlshare2.c
+
+add_executable(sdlshare2 sdlshare2.c)
+
+target_link_libraries(sdlshare2 Threads::Threads)
+
+target_compile_options(sdlshare2 PRIVATE ${SDL2_CFLAGS_OTHER})
+target_include_directories(sdlshare2 PRIVATE ${SDL2_INCLUDE_DIRS})
+target_link_libraries(sdlshare2 ${SDL2_LIBRARIES})
+
+target_link_libraries(sdlshare2 GL)
+
+target_include_directories(sdlshare2 PRIVATE ${GST_INCLUDE_DIRS} ${GST_BASE_INCLUDE_DIRS} "/usr/lib/arm-linux-gnueabihf/gstreamer-1.0/include")
+target_link_directories(sdlshare2 PRIVATE ${GST_LIBRARY_DIRS} ${GST_BASE_LIBRARY_DIRS})
+target_link_libraries(sdlshare2 glib-2.0 gobject-2.0 gstreamer-1.0 gstbase-1.0 gstvideo-1.0 gstgl-1.0)
