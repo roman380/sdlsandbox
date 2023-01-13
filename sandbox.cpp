@@ -48,11 +48,11 @@ struct Application
 			gchar* debug_message = nullptr;
 			GError* error = nullptr;
 			gst_message_parse_error(message, &error, &debug_message);
-			std::cout << "Error: " << error->message << std::endl;
+			g_print("Warning: %s\n", error->message);
 			g_error_free(error);
 			if(debug_message)
 			{
-				std::cout << debug_message << std::endl;
+				g_print("%s\n", debug_message);
 				g_free(debug_message);
 			}
 		}
@@ -67,20 +67,14 @@ struct Application
 			gchar* debug_message = nullptr;
 			GError* error = nullptr;
 			gst_message_parse_warning(message, &error, &debug_message);
-			std::cout << "Warning: " << error->message << std::endl;
+			g_print("Warning: %s\n", error->message);
 			g_error_free(error);
 			if(debug_message)
 			{
-				std::cout << debug_message << std::endl;
+				g_print("%s\n", debug_message);
 				g_free(debug_message);
 			}
 		}
-	}
-	void bus_eos(GstBus* bus, GstMessage* message)
-	{
-		g_assert_nonnull(bus);
-		g_assert_nonnull(message);
-		g_print("%s, %s: ...\n", gst_element_get_name(GST_ELEMENT(message->src)), GST_MESSAGE_TYPE_NAME(message));
 	}
 	void bus_sync_message(GstBus* bus, GstMessage* message)
 	{
@@ -113,39 +107,9 @@ struct Application
 				break;
 			}
 		default:
-			g_print("%s, %s: ...\n", gst_element_get_name(GST_ELEMENT(message->src)), GST_MESSAGE_TYPE_NAME(message));
+			g_print("%s, %s\n", gst_element_get_name(GST_ELEMENT(message->src)), GST_MESSAGE_TYPE_NAME(message));
 			break;
 		}
-	}
-
-	gboolean sink_client_reshape(GstElement* sink, GstGLContext* context, GLuint width, GLuint height)
-	{
-		g_print("%d: width %u, height %u\n", __LINE__, width, height);
-		glViewport(0, 0, width, height);
-		glMatrixMode(GL_PROJECTION);
-		glLoadIdentity();
-		glMatrixMode(GL_MODELVIEW);
-		return TRUE;
-	}
-	gboolean sink_client_draw(GstElement* sink, GstGLContext* context, GstSample* sample)
-	{
-		GstCaps* caps = gst_sample_get_caps(sample);
-		GstVideoInfo info;
-		gst_video_info_from_caps(&info, caps); // Does not have to be per sample
-		GstVideoFrame frame;
-		GstBuffer* buffer = gst_sample_get_buffer(sample);
-		verify(gst_video_frame_map(&frame, &info, buffer, static_cast<GstMapFlags>(GST_MAP_READ | GST_MAP_GL)));
-
-		g_mutex_lock(&app_lock);
-		app_rendered = FALSE;
-		this->frame = &frame;
-		g_idle_add_full(G_PRIORITY_HIGH, G_SOURCE_FUNC(+[] (gpointer user_data) -> gboolean { return reinterpret_cast<Application*>(user_data)->render(); }), this, nullptr);
-		while(!app_rendered && !app_quit)
-			g_cond_wait(&app_cond, &app_lock);
-		g_mutex_unlock(&app_lock);
-
-		gst_video_frame_unmap (&frame);
-		return TRUE;
 	}
 
 	void sink_handoff(GstElement* element, GstBuffer* buffer, GstPad* pad)
@@ -309,10 +273,7 @@ int main(int argc, char** argv)
 	}
 
 	std::string const pipeline_text = 
-		"gltestsrc ! "
-		//"videotestsrc ! video/x-raw, width=640, height=480, framerate=(fraction)30/1 ! gleffects effect=0 ! "
-		//"glimagesink name=sink";
-		"fakesink name=sink sync=1";
+		"gltestsrc ! fakesink name=sink sync=1";
 	GError* error = nullptr;
 	GstPipeline* pipeline = GST_PIPELINE(gst_parse_launch(pipeline_text.c_str(), &error));
 	if(error && error->message)
@@ -325,14 +286,9 @@ int main(int argc, char** argv)
 	gst_bus_add_signal_watch(bus);
 	g_signal_connect(G_OBJECT(bus), "message::error", G_CALLBACK(+[](GstBus* bus, GstMessage* message, gpointer user_data) { reinterpret_cast<::Application*>(user_data)->bus_error(bus, message); }), &Application);
 	g_signal_connect(G_OBJECT(bus), "message::warning", G_CALLBACK(+[](GstBus* bus, GstMessage* message, gpointer user_data) { reinterpret_cast<::Application*>(user_data)->bus_warning(bus, message); }), &Application);
-	g_signal_connect(G_OBJECT(bus), "message::eos", G_CALLBACK(+[](GstBus* bus, GstMessage* message, gpointer user_data) { reinterpret_cast<::Application*>(user_data)->bus_eos(bus, message); }), &Application);
 	gst_bus_enable_sync_message_emission(bus);
 	g_signal_connect(G_OBJECT(bus), "sync-message", G_CALLBACK(+[](GstBus* bus, GstMessage* message, gpointer user_data) { reinterpret_cast<::Application*>(user_data)->bus_sync_message(bus, message); }), &Application);
 	GstElement* sink = gst_bin_get_by_name(GST_BIN(pipeline), "sink");
-
-	//g_signal_connect(G_OBJECT(sink), "client-reshape", G_CALLBACK(+[](GstElement* sink, GstGLContext* context, GLuint width, GLuint height, gpointer user_data) -> gboolean { return reinterpret_cast<::Application*>(user_data)->sink_client_reshape(sink, context, width, height); }), &Application);
-	//g_signal_connect(G_OBJECT(sink), "client-draw", G_CALLBACK(+[](GstElement* sink, GstGLContext* context, GstSample* sample, gpointer user_data) -> gboolean { return reinterpret_cast<::Application*>(user_data)->sink_client_draw(sink, context, sample); }), &Application);
-
 	g_object_set(G_OBJECT(sink), "signal-handoffs", TRUE, nullptr);
 	g_signal_connect(sink, "handoff", G_CALLBACK(+[](GstElement* element, GstBuffer* buffer, GstPad* pad, gpointer user_data) { reinterpret_cast<::Application*>(user_data)->sink_handoff(element, buffer, pad); }), &Application);
 
@@ -350,39 +306,6 @@ int main(int argc, char** argv)
 
 	g_timeout_add(100, G_SOURCE_FUNC(+[](gpointer user_data) -> gboolean { return reinterpret_cast<::Application*>(user_data)->timeout(); }), &Application);
 	g_main_loop_run(Application.loop);
-
-/*
-	SDL_Surface* Surface = SDL_GetWindowSurface(Window);
-	Uint32 const Colors[2] 
-	{ 
-		SDL_MapRGB(Surface->format, 0x88, 0x44, 0x88), 
-		SDL_MapRGB(Surface->format, 0x44, 0x11, 0x44),
-	};
-	unsigned int FrameIndex = 0;
-
-	for(bool Quit = false; !Quit;)
-	{
-		for(;;)
-		{
-			SDL_Event Event {};
-			if(!SDL_PollEvent(&Event))
-				break;
-			//std::cout << "SDL Event: " << Event.type << std::endl;
-			if(Event.type == SDL_QUIT)
-			{
-				Quit = true;
-				break;
-			}
-		}
-
-		SDL_FillRect(Surface, nullptr, Colors[FrameIndex++ % std::size(Colors)]);
-		SDL_UpdateWindowSurface(Window);
-
-		//SDL_GL_SwapWindow(Window);
-		using namespace std::chrono_literals;
-		std::this_thread::sleep_for(20ms);
-	}
-*/
 
 	gst_element_set_state(GST_ELEMENT(pipeline), GST_STATE_NULL);
 	gst_bus_remove_signal_watch(bus);
