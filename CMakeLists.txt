@@ -19,9 +19,11 @@ target_compile_options(sandbox PRIVATE ${SDL2_CFLAGS_OTHER})
 target_include_directories(sandbox PRIVATE ${SDL2_INCLUDE_DIRS})
 target_link_libraries(sandbox ${SDL2_LIBRARIES})
 
+target_link_libraries(sandbox GL)
+
 target_include_directories(sandbox PRIVATE ${GST_INCLUDE_DIRS} ${GST_BASE_INCLUDE_DIRS} "/usr/lib/arm-linux-gnueabihf/gstreamer-1.0/include")
 target_link_directories(sandbox PRIVATE ${GST_LIBRARY_DIRS} ${GST_BASE_LIBRARY_DIRS})
-target_link_libraries(sandbox glib-2.0 gobject-2.0 gstreamer-1.0 gstbase-1.0 gstvideo-1.0)
+target_link_libraries(sandbox glib-2.0 gobject-2.0 gstreamer-1.0 gstbase-1.0 gstvideo-1.0 gstgl-1.0)
 
 set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT sandbox)
 
