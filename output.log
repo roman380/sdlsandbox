@@ -1,0 +1,17 @@
+PRETTY_NAME="Raspbian GNU/Linux 11 (bullseye)"
+NAME="Raspbian GNU/Linux"
+VERSION_ID="11"
+VERSION="11 (bullseye)"
+VERSION_CODENAME=bullseye
+ID=raspbian
+ID_LIKE=debian
+HOME_URL="http://www.raspbian.org/"
+SUPPORT_URL="http://www.raspbian.org/RaspbianForums"
+BUG_REPORT_URL="http://www.raspbian.org/RaspbianBugs"
+
+Testing video drivers...
+SDL_VIDEODRIVER available: x11 wayland offscreen dummy evdev
+SDL_VIDEODRIVER usable   : x11 offscreen
+SDL_VIDEODRIVER selected : x11
+SDL_RENDER_DRIVER available: opengl opengles2 opengles software
+SDL_RENDER_DRIVER selected : opengl
