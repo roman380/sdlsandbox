@@ -6,6 +6,7 @@
 #include <SDL.h>
 #include <SDL2/SDL_opengl.h>
 #include <SDL2/SDL_syswm.h>
+#include <SDL2/SDL_video_hook.h>
 
 #include <GL/glx.h>
 
@@ -34,6 +35,14 @@ struct Application
 		SDL_DisplayMode DisplayMode;
 		SDL_GetDesktopDisplayMode(0, &DisplayMode);
 		std::cout << "Desktop Display Mode: 0x" << std::hex << DisplayMode.format << ", " << std::dec << DisplayMode.w << " x " << DisplayMode.h << ", refresh_rate " << DisplayMode.refresh_rate << std::endl;
+
+		assert(!Current);
+		Current = this;
+		SDL_VideoHook VideoHook;
+		VideoHook.After_CreateWindow = +[] (SDL_Window* Window) { Current->AfterCreateWindow(Window); };
+		VideoHook.After_GL_CreateContext = +[] (SDL_Window* Window, SDL_GLContext Context) { Current->AfterCreateContext(Window, Context); };
+		VideoHook.Before_GL_SwapWindow = +[] (SDL_Window* Window) { Current->BeforeSwapWindow(Window); };
+		SDL_SetVideoHook(&VideoHook);
 
 		Window = SDL_CreateWindow("Test", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, DisplayMode.w * 0.70, DisplayMode.h * 0.70, SDL_WINDOW_OPENGL | SDL_WINDOW_ALLOW_HIGHDPI);
 		assert(Window);
@@ -97,6 +106,19 @@ struct Application
 		SDL_GL_MakeCurrent(Window, nullptr);
 		SDL_GL_DeleteContext(Context);
 		SDL_DestroyWindow(Window);
+	}
+
+	void AfterCreateWindow(SDL_Window* Window)
+	{
+		std::cout << "After SDL_CreateWindow: " << reinterpret_cast<void const*>(Window) << std::endl;
+	}
+	void AfterCreateContext(SDL_Window* Window, SDL_GLContext Context)
+	{
+		std::cout << "After SDL_GL_CreateContext: " << reinterpret_cast<void const*>(Window) << ", Context " << Context << std::endl;
+	}
+	void BeforeSwapWindow(SDL_Window* Window)
+	{
+		//std::cout << "After SDL_GL_SwapWindow: " << reinterpret_cast<void const*>(Window) << std::endl;
 	}
 
 	void bus_error(GstBus* bus, GstMessage* message)
@@ -263,6 +285,7 @@ struct Application
 		return G_SOURCE_REMOVE;
 	}
 
+	static Application* Current;
 	SDL_Window* Window = nullptr;
 	SDL_GLContext Context = nullptr;
 	GMainLoop* loop = nullptr;
@@ -274,6 +297,8 @@ struct Application
 	gboolean app_rendered = FALSE;
 	gboolean app_quit = FALSE;
 };
+
+Application* Application::Current = nullptr;
 
 int main(int argc, char** argv)
 {
