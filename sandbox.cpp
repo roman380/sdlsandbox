@@ -53,12 +53,12 @@ struct Application
 		Context = SDL_GL_CreateContext(Window);
 		assert(Context);
 
-		SDL_SysWMinfo WindowInfo { Version, SDL_SYSWM_X11 };
-		verify(SDL_GetWindowWMInfo(Window, &WindowInfo) == SDL_TRUE);
-		std::cout << "Window: subsystem " << static_cast<int>(WindowInfo.subsystem) << std::endl; // SDL_SYSWM_X11
-		assert(WindowInfo.info.x11.display);
-
 		{
+			SDL_SysWMinfo WindowInfo { Version, SDL_SYSWM_X11 };
+			verify(SDL_GetWindowWMInfo(Window, &WindowInfo) == SDL_TRUE);
+			std::cout << "Window: subsystem " << static_cast<int>(WindowInfo.subsystem) << std::endl; // SDL_SYSWM_X11
+			assert(WindowInfo.info.x11.display);
+			
 			gl_display = reinterpret_cast<GstGLDisplay*>(gst_gl_display_x11_new_with_display(WindowInfo.info.x11.display));
 			g_assert_nonnull(gl_display);
 			auto const handle = glXGetCurrentContext();
@@ -282,7 +282,7 @@ int main(int argc, char** argv)
 
 	{
 		Application Application;
-		
+
 		std::string const pipeline_text = "gltestsrc ! fakesink name=sink sync=1";
 		GError* error = nullptr;
 		GstPipeline* pipeline = GST_PIPELINE(gst_parse_launch(pipeline_text.c_str(), &error));
