@@ -26,16 +26,77 @@ struct Application
 {
 	Application()
 	{
+		SDL_version Version;
+		SDL_VERSION(&Version);
+		std::cout << "Version: " << static_cast<int>(Version.major) << "." << static_cast<int>(Version.minor) << " patch " << static_cast<int>(Version.patch) << std::endl;
+		std::cout << "Current Video Driver: " << SDL_GetCurrentVideoDriver() << std::endl;
+
+		SDL_DisplayMode DisplayMode;
+		SDL_GetDesktopDisplayMode(0, &DisplayMode);
+		std::cout << "Desktop Display Mode: 0x" << std::hex << DisplayMode.format << ", " << std::dec << DisplayMode.w << " x " << DisplayMode.h << ", refresh_rate " << DisplayMode.refresh_rate << std::endl;
+
+		Window = SDL_CreateWindow("Test", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, DisplayMode.w * 0.70, DisplayMode.h * 0.70, SDL_WINDOW_OPENGL | SDL_WINDOW_ALLOW_HIGHDPI);
+		assert(Window);
+		std::cout << "Window: ID " << SDL_GetWindowID(Window) << ", Flags 0x" << SDL_GetWindowFlags(Window) << std::endl;
+
+		SDL_GL_SetAttribute(SDL_GL_RED_SIZE, 8);
+		SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, 8);
+		SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE, 8);
+		SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE, 8);
+		SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
+		SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
+		SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+
+		SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+		SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
+		SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_COMPATIBILITY);
+		Context = SDL_GL_CreateContext(Window);
+		assert(Context);
+
+		SDL_SysWMinfo WindowInfo { Version, SDL_SYSWM_X11 };
+		verify(SDL_GetWindowWMInfo(Window, &WindowInfo) == SDL_TRUE);
+		std::cout << "Window: subsystem " << static_cast<int>(WindowInfo.subsystem) << std::endl; // SDL_SYSWM_X11
+		assert(WindowInfo.info.x11.display);
+
+		{
+			gl_display = reinterpret_cast<GstGLDisplay*>(gst_gl_display_x11_new_with_display(WindowInfo.info.x11.display));
+			g_assert_nonnull(gl_display);
+			auto const handle = glXGetCurrentContext();
+			g_assert_nonnull(handle);
+			static GstGLPlatform constexpr const g_platform = GST_GL_PLATFORM_GLX;
+			GstGLAPI const api = gst_gl_context_get_current_gl_api (g_platform, nullptr, nullptr);
+			g_assert_true(api == GST_GL_API_OPENGL);
+			std::cout << "GStreamer GL:  " << reinterpret_cast<void const*>(handle) << ", g_platform " << static_cast<int>(g_platform) << ", api 0x" << std::hex << static_cast<unsigned int>(api) << std::endl;
+			gl_context = gst_gl_context_new_wrapped(gl_display, reinterpret_cast<guintptr>(handle), g_platform, api); // https://gstreamer.freedesktop.org/documentation/gl/gstglapi.html#gst_gl_platform_from_string
+			g_assert_nonnull(gl_context);
+			verify(gst_gl_context_activate(gl_context, TRUE));
+			GError* error = nullptr;
+			verify(gst_gl_context_fill_info(gl_context, &error));
+			if(error && error->message)
+				std::cout << "GStreamer Error: " << error->message << std::endl;
+		}
+
 		loop = g_main_loop_new(nullptr, FALSE);
 		g_mutex_init(&app_lock);
 	}
 	~Application()
 	{
 		g_mutex_clear(&app_lock);
+		assert(loop);
+		g_main_loop_unref(std::exchange(loop, nullptr));
+
 		if(gl_context)
+		{
+			gst_gl_context_activate(gl_context, FALSE);
 			gst_object_unref(GST_OBJECT(std::exchange(gl_context, nullptr)));
+		}
 		if(gl_display)
 			gst_object_unref(GST_OBJECT(std::exchange(gl_display, nullptr)));
+
+		assert(Window && Context);
+		SDL_GL_MakeCurrent(Window, nullptr);
+		SDL_GL_DeleteContext(Context);
+		SDL_DestroyWindow(Window);
 	}
 
 	void bus_error(GstBus* bus, GstMessage* message)
@@ -217,107 +278,53 @@ struct Application
 int main(int argc, char** argv)
 {
 	gst_init(&argc, &argv);
-
 	verify(SDL_Init(SDL_INIT_VIDEO) >= 0);
 
-	SDL_version Version;
-	SDL_VERSION(&Version);
-	std::cout << "Version: " << static_cast<int>(Version.major) << "." << static_cast<int>(Version.minor) << " patch " << static_cast<int>(Version.patch) << std::endl;
-	std::cout << "Current Video Driver: " << SDL_GetCurrentVideoDriver() << std::endl;
-
-	SDL_DisplayMode DisplayMode;
-	SDL_GetDesktopDisplayMode(0, &DisplayMode);
-	std::cout << "Desktop Display Mode: 0x" << std::hex << DisplayMode.format << ", " << std::dec << DisplayMode.w << " x " << DisplayMode.h << ", refresh_rate " << DisplayMode.refresh_rate << std::endl;
-
-	Application Application;
-
-	Application.Window = SDL_CreateWindow("Test", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, DisplayMode.w * 0.70, DisplayMode.h * 0.70, SDL_WINDOW_OPENGL | SDL_WINDOW_ALLOW_HIGHDPI);
-	assert(Application.Window);
-	std::cout << "Window: ID " << SDL_GetWindowID(Application.Window) << ", Flags 0x" << SDL_GetWindowFlags(Application.Window) << std::endl;
-
-	SDL_GL_SetAttribute(SDL_GL_RED_SIZE, 8);
-	SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, 8);
-	SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE, 8);
-	SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE, 8);
-	SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
-	SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
-	SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-
-	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
-	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
-	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_COMPATIBILITY);
-	Application.Context = SDL_GL_CreateContext(Application.Window);
-	assert(Application.Context);
-
-	SDL_SysWMinfo WindowInfo { Version, SDL_SYSWM_X11 };
-	verify(SDL_GetWindowWMInfo(Application.Window, &WindowInfo) == SDL_TRUE);
-	std::cout << "Window: subsystem " << static_cast<int>(WindowInfo.subsystem) << std::endl; // SDL_SYSWM_X11
-	assert(WindowInfo.info.x11.display);
-
 	{
-		Application.gl_display = reinterpret_cast<GstGLDisplay*>(gst_gl_display_x11_new_with_display(WindowInfo.info.x11.display));
-		g_assert_nonnull(Application.gl_display);
-		auto const handle = glXGetCurrentContext();
-		g_assert_nonnull(handle);
-		static GstGLPlatform constexpr const g_platform = GST_GL_PLATFORM_GLX;
-		GstGLAPI const api = gst_gl_context_get_current_gl_api (g_platform, nullptr, nullptr);
-		g_assert_true(api == GST_GL_API_OPENGL);
-		std::cout << "GStreamer GL:  " << reinterpret_cast<void const*>(handle) << ", g_platform " << static_cast<int>(g_platform) << ", api 0x" << std::hex << static_cast<unsigned int>(api) << std::endl;
-		Application.gl_context = gst_gl_context_new_wrapped(Application.gl_display, reinterpret_cast<guintptr>(handle), g_platform, api); // https://gstreamer.freedesktop.org/documentation/gl/gstglapi.html#gst_gl_platform_from_string
-		g_assert_nonnull(Application.gl_context);
-		verify(gst_gl_context_activate(Application.gl_context, TRUE));
+		Application Application;
+		
+		std::string const pipeline_text = "gltestsrc ! fakesink name=sink sync=1";
 		GError* error = nullptr;
-		verify(gst_gl_context_fill_info(Application.gl_context, &error));
+		GstPipeline* pipeline = GST_PIPELINE(gst_parse_launch(pipeline_text.c_str(), &error));
 		if(error && error->message)
 			std::cout << "GStreamer Error: " << error->message << std::endl;
+		g_assert_nonnull(pipeline);
+		g_assert_null(error);
+
+		GstBus* bus = gst_pipeline_get_bus(GST_PIPELINE(pipeline));
+		g_assert_nonnull(bus);
+		gst_bus_add_signal_watch(bus);
+		g_signal_connect(G_OBJECT(bus), "message::error", G_CALLBACK(+[](GstBus* bus, GstMessage* message, gpointer user_data) { reinterpret_cast<::Application*>(user_data)->bus_error(bus, message); }), &Application);
+		g_signal_connect(G_OBJECT(bus), "message::warning", G_CALLBACK(+[](GstBus* bus, GstMessage* message, gpointer user_data) { reinterpret_cast<::Application*>(user_data)->bus_warning(bus, message); }), &Application);
+		gst_bus_enable_sync_message_emission(bus);
+		g_signal_connect(G_OBJECT(bus), "sync-message", G_CALLBACK(+[](GstBus* bus, GstMessage* message, gpointer user_data) { reinterpret_cast<::Application*>(user_data)->bus_sync_message(bus, message); }), &Application);
+		{
+			GstElement* sink = gst_bin_get_by_name(GST_BIN(pipeline), "sink");
+			g_object_set(G_OBJECT(sink), "signal-handoffs", TRUE, nullptr);
+			g_signal_connect(sink, "handoff", G_CALLBACK(+[](GstElement* element, GstBuffer* buffer, GstPad* pad, gpointer user_data) { reinterpret_cast<::Application*>(user_data)->sink_handoff(element, buffer, pad); }), &Application);
+			gst_object_unref(sink);
+		}
+
+		SDL_GL_MakeCurrent(Application.Window, Application.Context);
+		SDL_GL_SetSwapInterval(1);
+
+		int Width = 0, Height = 0;
+		SDL_GL_GetDrawableSize(Application.Window, &Width, &Height);
+		std::cout << "Drawable Size: " << Width << " x " << Height << std::endl;
+
+		gst_element_set_state(GST_ELEMENT(pipeline), GST_STATE_PAUSED);
+		gst_element_set_state(GST_ELEMENT(pipeline), GST_STATE_PLAYING);
+
+		g_timeout_add(100, G_SOURCE_FUNC(+[](gpointer user_data) -> gboolean { return reinterpret_cast<::Application*>(user_data)->timeout(); }), &Application);
+		g_main_loop_run(Application.loop);
+
+		gst_element_set_state(GST_ELEMENT(pipeline), GST_STATE_NULL);
+		gst_bus_remove_signal_watch(bus);
+		gst_object_unref(GST_OBJECT(std::exchange(bus, nullptr)));
+		gst_object_unref(GST_OBJECT(std::exchange(pipeline, nullptr)));
 	}
 
-	std::string const pipeline_text = 
-		"gltestsrc ! fakesink name=sink sync=1";
-	GError* error = nullptr;
-	GstPipeline* pipeline = GST_PIPELINE(gst_parse_launch(pipeline_text.c_str(), &error));
-	if(error && error->message)
-		std::cout << "GStreamer Error: " << error->message << std::endl;
-	g_assert_nonnull(pipeline);
-	g_assert_null(error);
-
-	GstBus* bus = gst_pipeline_get_bus(GST_PIPELINE(pipeline));
-	g_assert_nonnull(bus);
-	gst_bus_add_signal_watch(bus);
-	g_signal_connect(G_OBJECT(bus), "message::error", G_CALLBACK(+[](GstBus* bus, GstMessage* message, gpointer user_data) { reinterpret_cast<::Application*>(user_data)->bus_error(bus, message); }), &Application);
-	g_signal_connect(G_OBJECT(bus), "message::warning", G_CALLBACK(+[](GstBus* bus, GstMessage* message, gpointer user_data) { reinterpret_cast<::Application*>(user_data)->bus_warning(bus, message); }), &Application);
-	gst_bus_enable_sync_message_emission(bus);
-	g_signal_connect(G_OBJECT(bus), "sync-message", G_CALLBACK(+[](GstBus* bus, GstMessage* message, gpointer user_data) { reinterpret_cast<::Application*>(user_data)->bus_sync_message(bus, message); }), &Application);
-	GstElement* sink = gst_bin_get_by_name(GST_BIN(pipeline), "sink");
-	g_object_set(G_OBJECT(sink), "signal-handoffs", TRUE, nullptr);
-	g_signal_connect(sink, "handoff", G_CALLBACK(+[](GstElement* element, GstBuffer* buffer, GstPad* pad, gpointer user_data) { reinterpret_cast<::Application*>(user_data)->sink_handoff(element, buffer, pad); }), &Application);
-
-	gst_object_unref(sink);
-
-	SDL_GL_MakeCurrent(Application.Window, Application.Context);
-	SDL_GL_SetSwapInterval(1);
-
-	int Width = 0, Height = 0;
-	SDL_GL_GetDrawableSize(Application.Window, &Width, &Height);
-	std::cout << "Drawable Size: " << Width << " x " << Height << std::endl;
-
-	gst_element_set_state(GST_ELEMENT(pipeline), GST_STATE_PAUSED);
-	gst_element_set_state(GST_ELEMENT(pipeline), GST_STATE_PLAYING);
-
-	g_timeout_add(100, G_SOURCE_FUNC(+[](gpointer user_data) -> gboolean { return reinterpret_cast<::Application*>(user_data)->timeout(); }), &Application);
-	g_main_loop_run(Application.loop);
-
-	gst_element_set_state(GST_ELEMENT(pipeline), GST_STATE_NULL);
-	gst_bus_remove_signal_watch(bus);
-	gst_object_unref(GST_OBJECT(std::exchange(bus, nullptr)));
-	gst_object_unref(GST_OBJECT(std::exchange(pipeline, nullptr)));
-
-	gst_gl_context_activate(Application.gl_context, FALSE);
-
-	SDL_GL_MakeCurrent(Application.Window, nullptr);
-	SDL_GL_DeleteContext(Application.Context);
-	SDL_DestroyWindow(Application.Window);
-
 	SDL_Quit();
+	gst_deinit();
 	return 0;
 }
