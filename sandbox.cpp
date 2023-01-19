@@ -1,6 +1,11 @@
+#include <memory>
+#include <string>
+#include <sstream>
+#include <vector>
 #include <iostream>
 #include <chrono>
 #include <thread>
+#include <mutex>
 #include <assert.h>
 
 #include <SDL.h>
@@ -34,7 +39,7 @@ struct Application
 
 		SDL_DisplayMode DisplayMode;
 		SDL_GetDesktopDisplayMode(0, &DisplayMode);
-		std::cout << "Desktop Display Mode: 0x" << std::hex << DisplayMode.format << ", " << std::dec << DisplayMode.w << " x " << DisplayMode.h << ", refresh_rate " << DisplayMode.refresh_rate << std::endl;
+		std::cout << "Desktop Display Mode: 0x" << std::hex << DisplayMode.format << std::dec << ", " << std::dec << DisplayMode.w << " x " << DisplayMode.h << ", refresh_rate " << DisplayMode.refresh_rate << std::endl;
 
 		assert(!Current);
 		Current = this;
@@ -75,7 +80,7 @@ struct Application
 			static GstGLPlatform constexpr const g_platform = GST_GL_PLATFORM_GLX;
 			GstGLAPI const api = gst_gl_context_get_current_gl_api (g_platform, nullptr, nullptr);
 			g_assert_true(api == GST_GL_API_OPENGL);
-			std::cout << "GStreamer GL:  " << reinterpret_cast<void const*>(handle) << ", g_platform " << static_cast<int>(g_platform) << ", api 0x" << std::hex << static_cast<unsigned int>(api) << std::endl;
+			std::cout << "GStreamer GL:  " << reinterpret_cast<void const*>(handle) << ", g_platform " << static_cast<int>(g_platform) << ", api 0x" << std::hex << static_cast<unsigned int>(api) << std::dec << std::endl;
 			gl_context = gst_gl_context_new_wrapped(gl_display, reinterpret_cast<guintptr>(handle), g_platform, api); // https://gstreamer.freedesktop.org/documentation/gl/gstglapi.html#gst_gl_platform_from_string
 			g_assert_nonnull(gl_context);
 			verify(gst_gl_context_activate(gl_context, TRUE));
@@ -215,6 +220,35 @@ struct Application
 		gst_video_frame_unmap (&frame);
 	}
 
+	static std::string Format(char const* TextFormat, ...)
+	{
+		char Text[4 << 10];
+		va_list Arguments;
+		va_start(Arguments, TextFormat);
+		vsprintf(Text, TextFormat, Arguments);
+		va_end(Arguments);
+		return Text;
+	}
+	static std::string Join(std::vector<std::string> const& Vector, char const* Separator)
+	{
+		std::ostringstream Stream;
+		for(size_t Index = 0; Index < Vector.size(); Index++)
+		{
+			Stream << Vector[Index];
+			if(Index + 1 < Vector.size())
+				Stream << Separator;
+		}
+		return Stream.str();
+	}
+	static std::string FormatValues(float const* Values, size_t ValueCount, char const* ValueFormat, char const* Separator)
+	{
+		std::vector<std::string> Vector;
+		Vector.reserve(ValueCount);
+		for(size_t Index = 0; Index < ValueCount; Index++)
+			Vector.emplace_back(Format(ValueFormat, Values[Index]));
+		return Join(Vector, Separator);
+	}
+	
 	gboolean timeout()
 	{
 		for(;;)
@@ -249,12 +283,45 @@ struct Application
 			SDL_GL_MakeCurrent(Window, Context);
 			if(glXGetCurrentContext())
 			{
-				auto const texture = *reinterpret_cast<guint*>(frame->data[0]);
+				auto const Texture = *reinterpret_cast<guint*>(frame->data[0]);
+
+				// NOTE: OpenGL® 2.1, GLX, and GLU Reference Pages https://registry.khronos.org/OpenGL-Refpages/gl2.1/
+
+				static std::once_flag g_OutputStaticParameters;
+				std::call_once(g_OutputStaticParameters, [&]
+				{
+					GLint MatrixMode;
+					glGetIntegerv(GL_MATRIX_MODE, &MatrixMode); // GL_MODELVIEW 0x1700
+					std::cout << "GL_MATRIX_MODE " << std::hex << MatrixMode << std::dec << std::endl;
+					if(MatrixMode == GL_MODELVIEW)
+					{
+						GLfloat Matrix[16];
+						glGetFloatv(GL_MODELVIEW_MATRIX, Matrix);
+						std::cout << "GL_MODELVIEW_MATRIX " << FormatValues(Matrix, std::size(Matrix), "%.2f", " ") << std::endl;
+					}
+					GLfloat Viewport[4];
+					glGetFloatv(GL_VIEWPORT, Viewport);
+					GLfloat MaximalViewportDimension[2];
+					glGetFloatv(GL_MAX_VIEWPORT_DIMS, MaximalViewportDimension);
+					std::cout << "GL_VIEWPORT " << FormatValues(Viewport, std::size(Viewport), "%.1f", " ") << ", GL_MAX_VIEWPORT_DIMS " << FormatValues(MaximalViewportDimension, std::size(MaximalViewportDimension), "%.1f", " ") << std::endl;
+					GLfloat ScissorBox[4];
+					glGetFloatv(GL_SCISSOR_BOX, ScissorBox);
+					std::cout << "GL_SCISSOR_TEST " << static_cast<bool>(glIsEnabled(GL_SCISSOR_TEST)) << ", GL_SCISSOR_BOX " << FormatValues(ScissorBox, std::size(ScissorBox), "%.1f", " ") << std::endl;
+					std::cout << "GL_DEPTH_TEST " << static_cast<bool>(glIsEnabled(GL_DEPTH_TEST)) << std::endl;
+				});
+
 				glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); // Clear The Screen And The Depth Buffer
 				glLoadIdentity();									// Reset The View
 
 				glEnable(GL_TEXTURE_2D);
-				glBindTexture(GL_TEXTURE_2D, texture);
+				glBindTexture(GL_TEXTURE_2D, Texture);
+
+				GLint TextureWidth, TextureHeight, TextureFormat;
+				glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &TextureWidth);
+				glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &TextureHeight);
+				glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_INTERNAL_FORMAT, &TextureFormat); // GL_RGBA8 0x8058
+				std::cout << Texture << ", " << TextureWidth << " x " << TextureHeight << ", TextureFormat " << std::hex << TextureFormat << std::dec << std::endl;
+
 				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -262,15 +329,18 @@ struct Application
 				glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
 
 				//glColor3f(0.4f, 0.4f, 1.0f); // set color to a blue shade.
+
+				GLfloat const A = 0.90f;
+				GLfloat const B = 0.00f;
 				glBegin(GL_QUADS);
 				glTexCoord3f(0.0f, 1.0f, 0.0f);
-				glVertex3f(-0.6f, -0.6f, 0.0f); // Top Left
+				glVertex3f(-A, -A, B); // Top Left
 				glTexCoord3f(1.0f, 1.0f, 0.0f);
-				glVertex3f(+0.6f, -0.6f, 0.0f); // Top Right
+				glVertex3f(+A, -A, B); // Top Right
 				glTexCoord3f(1.0f, 0.0f, 0.0f);
-				glVertex3f(+0.6f, +0.6f, 0.0f); // Bottom Right
+				glVertex3f(+A, +A, B); // Bottom Right
 				glTexCoord3f(0.0f, 0.0f, 0.0f);
-				glVertex3f(-0.6f, +0.6f, 0.0f); // Bottom Left
+				glVertex3f(-A, +A, B); // Bottom Left
 				glEnd();
 
 				glBindTexture(GL_TEXTURE_2D, 0);
